@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import StatusBadge from "./StatusBadge";
 import AnomalyList from "../anomaly/AnomalyList";
-import SessionForm from "../session/SessionForm";
+import StartSessionForm from "../session/StartSessionForm";
+import CompleteSessionForm from "../session/CompleteSessionForm";
 import NotesEditor from "../session/NotesEditor";
 import type { ScheduleEntry } from "../../types/patient.types";
 
@@ -11,15 +12,27 @@ interface PatientCardProps {
 }
 
 export default function PatientCard({ entry, onSessionUpdate }: PatientCardProps) {
-  const [showForm, setShowForm] = useState(false);
+  const [showStartForm, setShowStartForm] = useState(false);
+  const [showCompleteForm, setShowCompleteForm] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
   const { patient, session, status } = entry;
+
+  // tick every minute while session is in progress
+  useEffect(() => {
+    if (status !== "in_progress") return;
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, [status]);
 
   const hasAnomalies = (session?.anomalies?.length ?? 0) > 0;
 
   const duration =
-    session?.startTime && session?.endTime
+    session?.startTime
       ? Math.round(
-          (new Date(session.endTime).getTime() -
+          ((session.endTime
+            ? new Date(session.endTime).getTime()
+            : now) -
             new Date(session.startTime).getTime()) /
             60000
         )
@@ -34,16 +47,14 @@ export default function PatientCard({ entry, onSessionUpdate }: PatientCardProps
             : "border-slate-200"
         }`}
       >
-        {/* Anomaly accent strip */}
         {hasAnomalies && (
           <div className="h-1 w-full bg-red-400 rounded-t-xl" />
         )}
 
         <div className="p-5">
-          {/* Top row: patient info + status + action */}
+          {/* Top row */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
-              {/* Avatar */}
               <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center shrink-0">
                 <span className="text-sm font-semibold text-cyan-700">
                   {patient.name
@@ -54,8 +65,6 @@ export default function PatientCard({ entry, onSessionUpdate }: PatientCardProps
                     .toUpperCase()}
                 </span>
               </div>
-
-              {/* Name + meta */}
               <div>
                 <p className="text-sm font-semibold text-slate-900">
                   {patient.name}
@@ -65,11 +74,14 @@ export default function PatientCard({ entry, onSessionUpdate }: PatientCardProps
                   <span className="text-slate-600 font-medium">
                     {patient.dryWeightKg} kg
                   </span>
-                  {" · "}
-                  Machine:{" "}
-                  <span className="text-slate-600 font-medium">
-                    {session?.machineId ?? "—"}
-                  </span>
+                  {session && (
+                    <>
+                      {" · "}Machine:{" "}
+                      <span className="text-slate-600 font-medium">
+                        {session.machineId}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -78,75 +90,95 @@ export default function PatientCard({ entry, onSessionUpdate }: PatientCardProps
               <StatusBadge status={status} />
               {status === "not_started" && (
                 <button
-                  onClick={() => setShowForm(true)}
+                  onClick={() => setShowStartForm(true)}
                   className="px-3 py-1.5 text-xs font-medium bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors cursor-pointer"
                 >
                   Start session
                 </button>
               )}
+              {status === "in_progress" && session && (
+                <button
+                  onClick={() => setShowCompleteForm(true)}
+                  className="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors cursor-pointer"
+                >
+                  Complete session
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Session details — only if session exists */}
+          {/* Session details */}
           {session && (
             <div className="mt-4">
-              {/* Vitals grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <VitalBox
-                  label="Pre weight"
+                  label="Pre-weight"
                   value={`${session.preWeightKg} kg`}
                 />
                 <VitalBox
-                  label="Post weight"
-                  value={`${session.postWeightKg} kg`}
+                  label="Post-weight"
+                  value={session.postWeightKg ? `${session.postWeightKg} kg` : "—"}
                   sub={
-                    session.preWeightKg && session.postWeightKg
+                    session.postWeightKg
                       ? `−${(session.preWeightKg - session.postWeightKg).toFixed(1)} kg removed`
-                      : undefined
+                      : "pending"
                   }
                 />
                 <VitalBox
+                  label="Pre BP"
+                  value={`${session.preBP.systolic}/${session.preBP.diastolic}`}
+                />
+                <VitalBox
                   label="Post BP"
-                  value={`${session.postBP.systolic}/${session.postBP.diastolic}`}
-                  highlight={session.postBP.systolic > 160}
+                  value={session.postBP ? `${session.postBP.systolic}/${session.postBP.diastolic}` : "—"}
+                  highlight={!!session.postBP && session.postBP.systolic > 160}
                 />
                 <VitalBox
                   label="Duration"
                   value={duration !== null ? `${duration} min` : "—"}
-                  highlight={
-                    duration !== null &&
-                    (duration < 210 || duration > 285)
-                  }
+                  highlight={duration !== null && status === "completed" && (duration < 210 || duration > 285)}
+                  sub={status === "in_progress" ? "ongoing" : undefined}
                 />
               </div>
 
-              {/* Anomalies */}
               {hasAnomalies && (
                 <div className="mt-3">
                   <AnomalyList anomalies={session.anomalies} />
                 </div>
               )}
 
-              {/* Notes */}
-              <div className="mt-3">
-                <NotesEditor
-                  sessionId={session._id}
-                  initialNotes={session.notes ?? ""}
-                  onSaved={onSessionUpdate}
-                />
-              </div>
+              {status === "completed" && (
+                <div className="mt-3">
+                  <NotesEditor
+                    sessionId={session._id}
+                    initialNotes={session.notes ?? ""}
+                    onSaved={onSessionUpdate}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Session form modal */}
-      {showForm && (
-        <SessionForm
+      {showStartForm && (
+        <StartSessionForm
           patient={patient}
-          onClose={() => setShowForm(false)}
+          onClose={() => setShowStartForm(false)}
           onSuccess={() => {
-            setShowForm(false);
+            setShowStartForm(false);
+            onSessionUpdate();
+          }}
+        />
+      )}
+
+      {showCompleteForm && session && (
+        <CompleteSessionForm
+          patient={patient}
+          session={session}
+          onClose={() => setShowCompleteForm(false)}
+          onSuccess={() => {
+            setShowCompleteForm(false);
             onSessionUpdate();
           }}
         />
@@ -155,7 +187,6 @@ export default function PatientCard({ entry, onSessionUpdate }: PatientCardProps
   );
 }
 
-/* ── Small internal component ── */
 interface VitalBoxProps {
   label: string;
   value: string;

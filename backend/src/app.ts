@@ -6,7 +6,9 @@ import scheduleRoutes from "./routes/schedule.routes";
 
 const app = express();
 
-app.use(cors({ origin: "http://localhost:5173" }));
+app.use(cors({ origin: ["http://localhost:5173",
+  "https://nephrodesk-frontend.onrender.com"]
+ }));
 app.use(express.json());
 
 app.use("/api/patients", patientRoutes);
